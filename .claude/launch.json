@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bloom",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["dev-server.py", "--port", "5174"],
+      "port": 5174,
+      "autoPort": false
+    }
+  ]
+}
