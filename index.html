@@ -38,7 +38,6 @@
 
   --ink:#3D1420;          /* app bars, nav bar, filled buttons */
   --berry:#7C2743;        /* secondary text, chips, indicators  */
-  --berry-deep:#6B2139;   /* profile header                     */
   --sky:#8DD9F0;          /* accent — active nav, headings on ink */
   --cream:#F7F3EC;        /* flow + sheet backgrounds           */
   --cream-2:#EFEAE1;      /* nested cards on cream              */
@@ -47,6 +46,7 @@
   --text-dim:#6D5D63;
   --line:#E3D9DC;
 
+  --bar-h:80px;                    /* 16 + 48 pill + 16 */
   --r-card:16px;
   --r-lg:20px;
   --r-pill:999px;
@@ -104,7 +104,6 @@ ul{margin:0;padding:0;list-style:none}
   transition:background .22s ease,color .22s ease;
 }
 .statusbar.on-cream{background:var(--cream);color:var(--ink)}
-.statusbar.on-berry{background:var(--berry-deep);color:#fff}
 .statusbar.on-dark {background:#150A0E;color:#fff}
 .status-icons{display:flex;align-items:center;gap:4px}
 .status-icons svg{display:block;fill:currentColor}
@@ -120,6 +119,20 @@ ul{margin:0;padding:0;list-style:none}
 /* ── Screens ───────────────────────────────────────────────── */
 .screen{position:absolute;inset:0;display:none;flex-direction:column;background:var(--surface)}
 .screen.is-active{display:flex}
+/* A screen being pushed away stays on stage until its slide finishes. z-order
+   decides which one travels over the other: the arriving screen leads a push,
+   the departing one leads a pop. */
+/* the two screens that sit beneath the persistent bar clear its height */
+.topbar{position:absolute;top:0;left:0;right:0;z-index:15}
+.topbar.is-hidden{opacity:0;pointer-events:none}
+#s-home,#s-listing{padding-top:var(--bar-h)}
+.screen.is-leaving{display:flex}
+.screen.is-front{z-index:2}
+.screen.is-back{z-index:1}
+/* A screen that doesn't use the bar rides over it while it moves, so the bar is
+   simply covered rather than fading out from under the arriving page. Declared
+   after is-front/is-back so it outranks them at equal specificity. */
+.screen.over-bar{z-index:16}
 .screen-body{flex:1;overflow-y:auto;overscroll-behavior:contain;padding-bottom:calc(var(--nav-h) + 28px)}
 .screen-body::-webkit-scrollbar{width:0}
 
@@ -192,8 +205,10 @@ ul{margin:0;padding:0;list-style:none}
   border-radius:var(--r-pill);padding:16px 24px;
   font-size:15px;font-weight:600;
 }
-.btn-filled{background:var(--ink);color:#fff}
-.btn-berry{background:var(--berry);color:#fff}
+/* Primary action, everywhere: sky ground, ink type. One filled variant now —
+   the berry one existed only to be legible on the maroon profile header,
+   which sky handles better anyway. */
+.btn-filled{background:var(--sky);color:var(--ink)}
 .btn-outline{border:1px solid var(--line);color:var(--berry);background:var(--surface)}
 .btn:active{transform:scale(.98)}
 
@@ -215,13 +230,62 @@ ul{margin:0;padding:0;list-style:none}
   font-weight:700;color:#fff;background:var(--berry);font-size:12px}
 
 /* ── Listing grid ──────────────────────────────────────────── */
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 12px;padding:16px}
+/* minmax(0,1fr), not 1fr: a 1fr track refuses to go below its content's
+   min-content width, and a nowrap title's min-content is the whole string —
+   the column would stretch to fit it instead of clipping. */
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px 20px;padding:16px}
 /* display:block matters — as a <button> it defaults to inline-block, which
    shrink-to-fits to 0 wide (both children are absolute) and kills the tile. */
 .card-img{display:block;width:100%;position:relative;aspect-ratio:1;border-radius:12px;overflow:hidden}
-.card-img .owner{position:absolute;top:6px;right:6px;width:34px;height:34px;border:2px solid #fff}
-.card-title{font-size:13.5px;font-weight:700;margin:8px 0 8px;line-height:1.25}
-.card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.card-img .owner{position:absolute;top:6px;left:6px;width:34px;height:34px;border:2px solid #fff}
+/* Always one line. When it doesn't fit, the title holds still, tracks slowly
+   left to reveal the rest, holds, and comes back — the duration is set per
+   card so every title travels at the same speed regardless of how much it
+   overruns. */
+/* 4 below, 8 above: the size caption centres inside the 24px heart row and
+   picks up 4px of its own, so this lands both gaps on the same optical 8. */
+.card-title{font-size:13.5px;font-weight:700;margin:8px 0 4px;line-height:1.25;
+  overflow:hidden;white-space:nowrap;position:relative}
+/* max-content, or the inline-block shrink-to-fits to the card and reports the
+   card's width — the overflow it's meant to reveal would measure zero */
+.card-title span{display:inline-block;width:max-content;will-change:transform}
+.card-title.is-marquee span{animation:title-track var(--dur,8s) ease-in-out infinite}
+@keyframes title-track{
+  0%,16%  {transform:translateX(0)}
+  50%,66% {transform:translateX(calc(-1 * var(--shift)))}
+  100%    {transform:translateX(0)}
+}
+/* The text dissolves into the card at whichever edge still has something past
+   it — so the leading fade is off while the title rests at its start, and the
+   trailing fade is off once it has travelled the whole way. They swap on the
+   same clock as the travel. */
+.card-title.is-marquee::before,
+.card-title.is-marquee::after{
+  content:'';position:absolute;top:0;bottom:0;width:18px;pointer-events:none;
+  animation-duration:var(--dur,8s);animation-timing-function:ease-in-out;
+  animation-iteration-count:infinite;
+}
+.card-title.is-marquee::before{
+  left:0;background:linear-gradient(to right,var(--surface),transparent);
+  animation-name:title-fade-lead;
+}
+.card-title.is-marquee::after{
+  right:0;background:linear-gradient(to left,var(--surface),transparent);
+  animation-name:title-fade-trail;
+}
+@keyframes title-fade-lead{
+  0%,16%{opacity:0} 50%,66%{opacity:1} 100%{opacity:0}
+}
+@keyframes title-fade-trail{
+  0%,16%{opacity:1} 50%,66%{opacity:0} 100%{opacity:1}
+}
+@media (prefers-reduced-motion:reduce){
+  .card-title.is-marquee span{animation:none;display:block;overflow:hidden;text-overflow:ellipsis}
+  .card-title.is-marquee::before,.card-title.is-marquee::after{display:none}
+}
+/* 24px whether or not it holds a heart, so the size caption keeps the same
+   optical gap under the title on your own cards as on everyone else's */
+.card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px}
 .heart{color:var(--ink)}
 .heart.is-on svg{fill:var(--berry);stroke:var(--berry)}
 
@@ -234,29 +298,34 @@ ul{margin:0;padding:0;list-style:none}
 .post-user span{font-size:12.5px;color:var(--text-dim)}
 .post-img{aspect-ratio:1;border-radius:12px;overflow:hidden}
 /* photo rail — snaps, and bleeds past the card padding off the right edge */
+/* Bleeds past the content column on both sides: the first photo still lines up
+   with the title, but photos leaving the rail run off the screen edge instead
+   of vanishing into a gutter 16px in. */
 .post-rail{
   display:flex;gap:12px;overflow-x:auto;
   scroll-snap-type:x mandatory;scrollbar-width:none;
-  margin-right:-16px;padding-right:16px;
+  margin:0 -16px;padding:0 16px;
+  /* snapping ignores padding unless told otherwise — without this the rail
+     scrolls itself 16px on load and the first photo sits off the text column */
+  scroll-padding:0 16px;
 }
 .post-rail::-webkit-scrollbar{height:0}
 .post-rail .post-img{flex:none;width:84%;scroll-snap-align:start;cursor:zoom-in}
 /* one photo has nothing to peek at, so drop the bleed and let it fill the
    content column — squares up with the title and description below it */
-.post-rail.is-single{margin-right:0;padding-right:0}
+.post-rail.is-single{margin:0;padding:0}
 .post-rail.is-single .post-img{width:100%}
-.post-title{font-size:15px;font-weight:700;margin:12px 0 4px}
-.post-desc{font-size:12.5px;line-height:1.45;color:var(--text);margin:0 0 12px}
-.post-foot{display:flex;align-items:center;gap:12px}
+/* now sits above the photos rather than under them */
+.post-title{font-size:15px;font-weight:700;margin:0 0 12px}
+/* 8 not 12 below: the size caption centres inside the 24px action row, which
+   adds 4px of its own — this lands the text on the same 12px rhythm as the
+   gaps above it. */
+.post-desc{font-size:12.5px;line-height:1.45;color:var(--text);margin:12px 0 8px}
+/* One line of text against the two actions — no strip to scroll any more.
+   The min-height keeps the row 24px whether or not it holds actions, so the
+   caption centres identically on your own posts as on everyone else's. */
+.post-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:24px}
 .post-actions{display:flex;gap:16px;color:var(--ink);flex:none}
-/* Size + tags share one strip that scrolls under the actions. The fade is only
-   applied when it actually overflows — otherwise it would dim a chip that
-   happens to end near the edge. See syncChipStrips(). */
-.chip-strip{
-  flex:1;min-width:0;display:flex;align-items:center;gap:8px;
-  overflow-x:auto;scrollbar-width:none;padding:4px 0;
-}
-.chip-strip::-webkit-scrollbar{height:0}
 
 /* Same one-line scrolling treatment for the search groups. (.chip-row, used on
    the profile, deliberately wraps instead — nothing there is scrollable.) */
@@ -266,15 +335,15 @@ ul{margin:0;padding:0;list-style:none}
 
 /* Fades track the scroll position: only ever on the side that still has chips
    hidden past it, so scrolling to either end clears that edge. */
-.chip-strip.fade-r,.chip-scroll.fade-r{
+.chip-scroll.fade-r{
   -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 44px),transparent);
           mask-image:linear-gradient(to right,#000 calc(100% - 44px),transparent);
 }
-.chip-strip.fade-l,.chip-scroll.fade-l{
+.chip-scroll.fade-l{
   -webkit-mask-image:linear-gradient(to right,transparent,#000 44px);
           mask-image:linear-gradient(to right,transparent,#000 44px);
 }
-.chip-strip.fade-l.fade-r,.chip-scroll.fade-l.fade-r{
+.chip-scroll.fade-l.fade-r{
   -webkit-mask-image:linear-gradient(to right,transparent,#000 44px,#000 calc(100% - 44px),transparent);
           mask-image:linear-gradient(to right,transparent,#000 44px,#000 calc(100% - 44px),transparent);
 }
@@ -305,21 +374,22 @@ ul{margin:0;padding:0;list-style:none}
 .menu-row.is-on .tick{opacity:1}
 
 /* ── Listing detail ────────────────────────────────────────── */
-.detailbar{background:var(--ink);color:var(--sky);flex:none;
-  display:flex;align-items:center;justify-content:space-between;padding:16px 16px}
 .listing{padding:16px}
-.listing-owner{display:flex;align-items:center;gap:12px;width:100%;margin:16px 0 16px;text-align:left}
+.listing-owner{display:flex;align-items:center;gap:12px;margin:0 0 16px;text-align:left}
 .listing-owner .avatar{width:40px;height:40px}
-.listing-owner .who{flex:1;line-height:1.25}
+/* The row spans the width so the pencil can sit where the chevron used to,
+   but only the identity half is the link to their profile. */
+.listing-owner{width:100%}
+.listing-who{display:flex;align-items:center;gap:12px;text-align:left;min-width:0}
+.edit-post{margin-left:auto;color:var(--berry);padding:8px;margin-right:-8px}
+.listing-owner .who{line-height:1.25;min-width:0}
 .listing-owner .who b{display:block;font-size:14px}
 .listing-owner .who span{font-size:12.5px;color:var(--text-dim)}
-.listing-owner .ico{color:var(--berry)}
 .listing h1{font-size:21px;font-weight:700;margin:0 0 12px;line-height:1.2}
 .listing-desc{font-size:14px;line-height:1.55;margin:16px 0 0}
 .listing-size{margin-top:16px}
-.listing h3{font-family:var(--font-display);font-style:italic;font-weight:600;
-  font-size:19px;margin:24px 0 12px}
-.listing-tags{display:flex;flex-wrap:wrap;gap:8px}
+/* the heading is gone, so the row carries the gap itself */
+.listing-tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .listing-actions{display:flex;align-items:center;gap:16px;padding:24px 16px 8px}
 .listing-actions .btn{flex:1}
 .listing-actions .heart{width:48px;height:48px;border:1px solid var(--line);
@@ -398,12 +468,11 @@ ul{margin:0;padding:0;list-style:none}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .callout-photo{
-  position:relative;aspect-ratio:4/3;margin:8px 0 8px;
+  position:relative;aspect-ratio:1;margin:8px 0 8px;
   border:1px solid var(--line);border-radius:7px;overflow:hidden;
 }
 .callout-foot{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .callout .chip{padding:4px 8px;font-size:10.5px}
-.callout .avatar{width:22px;height:22px;font-size:10px}
 
 /* ── Tabs (M3) ─────────────────────────────────────────────── */
 .tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--line);flex:none}
@@ -416,23 +485,37 @@ ul{margin:0;padding:0;list-style:none}
 /* ── Profile ───────────────────────────────────────────────── */
 /* Collapses to a compact bar once the content scrolls — the big identity block
    folds away and a small one fades in on the same row as the controls. */
-.profile-head{background:var(--berry-deep);padding:12px 16px 20px;flex:none;color:var(--sky);
+.profile-head{background:var(--ink);padding:12px 16px 20px;flex:none;color:var(--sky);
   transition:padding .22s ease}
-.profile-head .row{display:flex;align-items:center;justify-content:space-between}
+.profile-head .row{display:flex;align-items:center;justify-content:space-between;position:relative}
+/* enough air that the two read as separate actions, not one control */
+.row-actions{display:flex;align-items:center;gap:12px}
+/* The compact name is centred on the bar itself, not on what's left between
+   the buttons — otherwise adding the mail icon would shove it off-centre. */
+.profile-head .msg-btn{display:none}
+#s-profile.is-theirs .profile-head.is-compact .msg-btn{display:grid;place-items:center}
 .profile-head .row button{color:var(--sky);flex:none}
 .profile-mini{
+  position:absolute;left:50%;top:50%;max-width:calc(100% - 176px);
   display:flex;align-items:center;gap:8px;min-width:0;
-  opacity:0;transform:translateY(5px);pointer-events:none;
+  opacity:0;transform:translate(-50%,calc(-50% + 5px));pointer-events:none;
   transition:opacity .18s ease,transform .22s ease;
 }
 .profile-mini .avatar{width:28px;height:28px;font-size:11px;border:2px solid #E9DCDF}
 .profile-mini b{font-family:var(--font-display);font-style:italic;font-weight:600;
   font-size:16px;color:var(--sky);white-space:nowrap}
+/* The clamp exists only so the collapse has something to animate to zero, but
+   a fixed one silently crops whatever it didn't anticipate — the swap button
+   lost 9px off its bottom. JS keeps --id-h at the measured height; the compact
+   rule still outranks it, so the animation is unaffected. */
 .profile-id{text-align:center;margin-top:-8px;overflow:hidden;
-  max-height:190px;opacity:1;transition:max-height .24s ease,opacity .16s ease,margin .24s ease}
+  max-height:var(--id-h,260px);opacity:1;
+  transition:max-height .24s ease,opacity .16s ease,margin .24s ease}
 
 .profile-head.is-compact{padding-bottom:12px}
-.profile-head.is-compact .profile-mini{opacity:1;transform:none}
+/* both heights read in one frame while sizing the collapse — no transitions */
+.profile-head.measuring,.profile-head.measuring *{transition:none !important}
+.profile-head.is-compact .profile-mini{opacity:1;transform:translate(-50%,-50%)}
 .profile-head.is-compact .profile-id{max-height:0;opacity:0;margin-top:0}
 .profile-id .avatar{width:78px;height:78px;margin:0 auto 12px;border:3px solid #E9DCDF;font-size:22px}
 .profile-id h2{font-family:var(--font-display);font-style:italic;font-weight:600;font-size:22px;margin:0}
@@ -446,7 +529,38 @@ ul{margin:0;padding:0;list-style:none}
 .about p + h3{margin-top:28px}
 .about p{font-size:14px;line-height:1.5;margin:0}
 .empty{padding:60px 32px;text-align:center;color:var(--text-dim);font-size:13.5px;line-height:1.6}
-.edit-fab{display:flex;justify-content:flex-end;padding:20px}
+/* A section's own edit sits with its heading, so you never open a form for
+   something you didn't mean to touch. Quiet, because the content is the point. */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.sec-head h3{flex:1;min-width:0}
+/* a pencil rather than the word — the heading beside it already says which
+   thing this edits, so the label was saying it twice */
+.edit-link{flex:none;color:var(--berry);align-self:center;margin-bottom:12px;
+  padding:6px;margin-right:-6px}
+.edit-link .ico{width:19px;height:19px}
+/* whose profile this is decides which half of the screen exists */
+#s-profile.is-theirs .mine-only,
+#s-profile.is-mine   .theirs-only{display:none !important}
+/* sized by its label, not by the screen — a full-bleed bar read as a banner
+   rather than something to press */
+.profile-cta{margin-top:16px;display:flex;justify-content:center}
+
+.sheet-screen{background:var(--cream);z-index:48}
+.sheet-head button{color:var(--berry);flex:none;padding:4px;margin:-4px}
+.edit-tags{display:flex;flex-wrap:wrap;gap:8px;padding:4px 0 8px}
+.edit-tags .chip{cursor:pointer}
+/* what you've saved, stated as a list you own rather than a grid you pick from */
+.edit-chosen{display:flex;flex-wrap:wrap;gap:8px;padding:0 0 16px}
+.edit-empty{font-size:13px;color:var(--text-dim);margin:0;padding:4px 0 8px}
+.tag-entry{padding:0 0 8px}
+/* the same pill as the search bar, so finding a tag feels like the one place
+   you already find tags */
+.tag-search{background:var(--surface);min-height:44px;padding:8px 16px;box-sizing:border-box}
+.tag-search input{flex:1;border:0;background:none;outline:none;font-size:15px;color:var(--ink)}
+.tag-search input::placeholder{color:var(--berry);opacity:.6;font-style:italic}
+.edit-hint{font-size:12.5px;line-height:1.5;color:var(--text-dim);margin:8px 0 12px}
+.edit-area{width:100%;border:0;background:none;outline:none;font-family:var(--font-body);
+  font-size:15px;line-height:1.5;color:var(--text);resize:none;min-height:180px}
 
 /* ── Messages ──────────────────────────────────────────────── */
 .msg-list{padding:12px 16px;display:flex;flex-direction:column;gap:12px}
@@ -545,16 +659,16 @@ ul{margin:0;padding:0;list-style:none}
 .sheet-foot{flex:none;display:flex;gap:12px;padding:16px 20px 24px;border-top:1px solid var(--line);background:var(--cream)}
 
 /* ── Size setup ────────────────────────────────────────────── */
-.sizes-screen{background:var(--cream);z-index:48}
-.sizes-body{flex:1;overflow-y:auto;padding:44px 24px 20px}
+/* Every editing surface is the same object: cream ground, one berry heading in
+   a fixed head with a close beside it, a scrolling body, a filled Save. */
+.sizes-screen{z-index:48}
+.sizes-body{flex:1;overflow-y:auto;padding:0 20px 20px}
 .sizes-body::-webkit-scrollbar{width:0}
 /* sized to keep the longer question on a single line at 375px */
-.sizes-title{font-family:var(--font-display);font-style:italic;font-weight:600;
-  font-size:26px;margin:0 0 12px;line-height:1.15}
 .sizes-sub{font-size:14px;line-height:1.55;color:var(--text-dim);margin:0 0 8px}
 .sizes-group{margin-top:28px}
 .sizes-group h3{font-family:var(--font-display);font-style:italic;font-weight:600;
-  font-size:18px;margin:0 0 12px}
+  font-size:18px;margin:0 0 12px;color:var(--berry)}
 /* one bordered card per category; a tier per way of sizing it, ruled apart */
 .size-card{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface)}
 .size-tier{display:flex;flex-wrap:wrap;gap:8px;padding:16px}
@@ -563,7 +677,7 @@ ul{margin:0;padding:0;list-style:none}
 /* applies anywhere a chip is a toggle — onboarding and the search size pickers */
 .chip[aria-pressed="true"]{background:var(--berry);border-color:var(--berry);color:#fff}
 .sizes-foot{flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;
-  padding:12px 24px 28px;background:var(--cream)}
+  padding:12px 20px 28px;background:var(--cream)}
 .sizes-foot .btn{width:100%}
 .sizes-skip{padding:12px;font-size:13.5px;font-weight:600;color:var(--berry)}
 
@@ -642,18 +756,12 @@ ul{margin:0;padding:0;list-style:none}
   font-size:12.5px;font-weight:600;color:var(--berry);white-space:nowrap}
 .save-link .ico{width:14px;height:14px;stroke-width:2.4}
 
-/* The refine header keeps the app bar exactly as tall as the pill it replaces
-   (48px min-height + the bar's own padding), so swapping them doesn't jump. */
-.refine-head{display:flex;align-items:center;gap:12px;height:48px;padding:0 4px}
-.refine-head > button{display:grid;place-items:center;padding:12px;margin:-12px;color:var(--cream)}
-.refine-head h2{margin:0;font-family:var(--font-display);font-style:italic;font-weight:600;
-  font-size:19px;line-height:1.2;color:var(--cream);opacity:.85}
-.refine-add{
-  display:flex;align-items:center;gap:8px;width:calc(100% - 40px);margin:16px 20px 0;
-  padding:12px 16px;border:1px dashed var(--line);border-radius:var(--r-card);
-  font-size:13.5px;font-weight:600;color:var(--berry);text-align:left;
-}
-.refine-add .ico{width:16px;height:16px;stroke-width:2.4}
+/* The filter row doubles as the way out: back on the left, what's applied in
+   the middle, a way to drop it on the right. It costs no extra chrome because
+   the row only exists while there's a filter to leave. */
+.filter-bar{flex:none}
+.filter-back{flex:none;display:grid;place-items:center;color:var(--berry);
+  padding:8px;margin:-8px 0 -8px -4px}
 /* clipped so the menu can be animated open by height */
 #search-groups{overflow:hidden}
 
@@ -672,6 +780,10 @@ ul{margin:0;padding:0;list-style:none}
 /* ── Toast ─────────────────────────────────────────────────── */
 .toast{
   position:absolute;left:50%;bottom:100px;transform:translate(-50%,14px);
+  /* left:50% alone shrink-wraps against the right edge, so a toast could only
+     ever use half the frame and wrapped early. max-content lets it take the
+     width it needs and center over the whole screen. */
+  width:max-content;max-width:calc(100% - 48px);text-align:center;
   background:var(--ink);color:#fff;font-size:13px;font-weight:600;
   padding:12px 20px;border-radius:var(--r-pill);z-index:60;
   opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease;
@@ -693,6 +805,7 @@ ul{margin:0;padding:0;list-style:none}
 <symbol id="i-back" viewBox="0 0 24 24"><path d="M20 12H4M10 6l-6 6 6 6"/></symbol>
 <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
 <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-plus-bare" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
 <!-- clearing the field, kept distinct from the bare X that closes the search -->
 <symbol id="i-clear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6"/></symbol>
 <symbol id="i-more" viewBox="0 0 24 24" stroke-width="2.4"><path d="M6 12h.01M12 12h.01M18 12h.01"/></symbol>
@@ -745,17 +858,26 @@ ul{margin:0;padding:0;list-style:none}
 <div class="app">
 
   <!-- ══ HOME ══════════════════════════════════════════════ -->
+  <!-- Chrome, not furniture: the bar lives outside the screens so it holds
+       still while they slide under it. Its leading slot is the view menu at a
+       root and a back arrow once you've drilled in. -->
+  <header class="appbar topbar" id="app-bar">
+    <div class="searchbar">
+      <button id="menu-btn" aria-label="View options" aria-haspopup="menu">
+        <svg class="ico"><use href="#i-menu"/></svg>
+      </button>
+      <input placeholder="I'm looking for..." aria-label="Search listings">
+      <svg class="ico"><use href="#i-search"/></svg>
+    </div>
+  </header>
+
   <section class="screen is-active" id="s-home">
-    <header class="appbar">
-      <div class="searchbar">
-        <button id="menu-btn" aria-label="View options" aria-haspopup="menu">
-          <svg class="ico"><use href="#i-menu"/></svg>
-        </button>
-        <input placeholder="I'm looking for..." aria-label="Search listings">
-        <svg class="ico"><use href="#i-search"/></svg>
-      </div>
-    </header>
+    <!-- Only present while a filter is on, which is exactly when there's
+         somewhere to go back to — so the back arrow lives here rather than
+         costing the app bar or a header row of its own. -->
+    <div class="search-picked filter-bar" id="home-picked" hidden></div>
     <div class="screen-body" id="home-scroll">
+      <h3 class="search-sec" id="home-count" hidden></h3>
       <div class="grid" id="home-grid"></div>
       <div id="home-feed" hidden></div>
     </div>
@@ -784,43 +906,67 @@ ul{margin:0;padding:0;list-style:none}
         <div class="profile-mini" aria-hidden="true">
           <div class="avatar">S</div><b>sally_43</b>
         </div>
-        <button aria-label="More"><svg class="ico"><use href="#i-more"/></svg></button>
+        <div class="row-actions">
+          <!-- the collapsed header has to keep the one action worth having -->
+          <button class="msg-btn" id="profile-msg-mini" aria-label="Message"><svg class="ico"><use href="#i-mail"/></svg></button>
+          <button aria-label="More"><svg class="ico"><use href="#i-more"/></svg></button>
+        </div>
       </div>
       <div class="profile-id">
         <div class="avatar">S</div>
-        <h2>sally_43</h2>
+        <h2 id="profile-name">sally_43</h2>
         <p id="profile-meta">she/her • Brooklyn, NY</p>
+        <!-- visiting someone, the point is to reach them — so the action sits
+             with their name rather than at the bottom of their closet -->
+        <div class="profile-cta theirs-only">
+          <button class="btn btn-filled" id="profile-swap">
+            <svg class="ico ico-sm"><use href="#i-mail"/></svg>Message
+          </button>
+        </div>
       </div>
     </header>
     <nav class="tabs" id="profile-tabs">
       <button class="is-active" data-tab="listings">Listings</button>
-      <button data-tab="faves">Faves</button>
+      <button class="mine-only" data-tab="faves">Faves</button>
       <button data-tab="about">About</button>
     </nav>
     <div class="screen-body">
       <div class="grid" id="profile-listings" data-pane="listings"></div>
       <div data-pane="faves" hidden><div class="grid" id="profile-faves"></div></div>
       <div data-pane="about" hidden>
+        <!-- Each section carries its own edit, because each holds a different
+             kind of thing: prose, a curated tag set, constrained values. One
+             global edit button would have to open all three. -->
         <div class="about">
-          <h3>About me</h3>
-          <p>Hi my name is Sally I'm a cool gal from Texas who just moved here from
-             Texas I already said that lol whahaha I'm so random and quirky lol xD
-             Anyway yeah so&hairsp;.&hairsp;.&hairsp;. I just moved here!! Wow and also I have a lot
-             of clothes, this is me writing a loooooooooooooong description about
-             myself I am so cool and fun pls swap with me xoXO</p>
-          <h3>How I would describe my wardrobe&hairsp;.&hairsp;.&hairsp;.</h3>
+          <div class="sec-head">
+            <h3>About me</h3>
+            <button class="edit-link mine-only" data-edit="bio" aria-label="Edit About me"><svg class="ico"><use href="#i-pencil"/></svg></button>
+          </div>
+          <p id="about-bio"></p>
+        </div>
+        <div class="about">
+          <div class="sec-head">
+            <h3>How I would describe my wardrobe&hairsp;.&hairsp;.&hairsp;.</h3>
+          </div>
+          <p class="about-note mine-only">From the tags on your listings</p>
         </div>
         <div class="chip-row" id="wardrobe-chips"></div>
-        <div class="about"><h3 style="margin-top:24px">I'm looking for&hairsp;.&hairsp;.&hairsp;.</h3></div>
-        <div class="chip-row" id="seeking-chips"></div>
         <div class="about">
-          <h3 style="margin-top:24px">My sizes</h3>
+          <div class="sec-head">
+            <h3>I&rsquo;m looking for&hairsp;.&hairsp;.&hairsp;.</h3>
+            <button class="edit-link mine-only" data-edit="seeking" aria-label="Edit the tags you're looking for"><svg class="ico"><use href="#i-pencil"/></svg></button>
+          </div>
+        </div>
+        <div class="chip-row" id="seeking-chips"></div>
+        <!-- the one private section, so it simply isn't there on someone else's -->
+        <div class="about mine-only">
+          <div class="sec-head">
+            <h3>My sizes</h3>
+            <button class="edit-link" data-edit="sizes" aria-label="Edit my sizes"><svg class="ico"><use href="#i-pencil"/></svg></button>
+          </div>
           <p class="about-note">Only you can see this</p>
         </div>
-        <div class="chip-row" id="my-sizes"></div>
-        <div class="edit-fab">
-          <button class="btn btn-berry" id="edit-profile"><svg class="ico ico-sm"><use href="#i-pencil"/></svg>Edit Profile</button>
-        </div>
+        <div class="chip-row mine-only" id="my-sizes"></div>
       </div>
     </div>
   </section>
@@ -868,10 +1014,6 @@ ul{margin:0;padding:0;list-style:none}
 
   <!-- ══ LISTING DETAIL ════════════════════════════════════ -->
   <section class="screen" id="s-listing">
-    <header class="detailbar">
-      <button id="listing-back" aria-label="Back"><svg class="ico"><use href="#i-back"/></svg></button>
-      <button aria-label="More"><svg class="ico"><use href="#i-more"/></svg></button>
-    </header>
     <div class="screen-body" id="listing-body"></div>
   </section>
 
@@ -1006,10 +1148,27 @@ ul{margin:0;padding:0;list-style:none}
   </nav>
 
   <!-- ══ SIZE SETUP (onboarding) ═══════════════════════════ -->
-  <div class="overlay sizes-screen" id="sizes-screen">
+  <!-- ══ SECTION EDITOR ════════════════════════════════════ -->
+  <!-- One sheet, three modes — prose, tags, and a hand-off to the sizes
+       screen. Which one you get is decided by the section you tapped. -->
+  <div class="overlay sheet-screen" id="edit-sheet">
+    <header class="sheet-head">
+      <h2 id="edit-title"></h2>
+      <button id="edit-cancel" aria-label="Cancel"><svg class="ico"><use href="#i-close"/></svg></button>
+    </header>
+    <div class="sheet-body" id="edit-body"></div>
+    <div class="sizes-foot">
+      <button class="btn btn-filled" id="edit-save"><svg class="ico ico-sm"><use href="#i-check"/></svg>Save</button>
+    </div>
+  </div>
+
+  <div class="overlay sheet-screen sizes-screen" id="sizes-screen">
+    <header class="sheet-head">
+      <h2 id="sizes-title">What are you looking for?</h2>
+      <button id="sizes-close" aria-label="Close"><svg class="ico"><use href="#i-close"/></svg></button>
+    </header>
     <div class="sizes-body">
-      <h2 class="sizes-title">What are you looking for?</h2>
-      <p class="sizes-sub">So Bloom can show you things that&rsquo;ll actually fit.
+      <p class="sizes-sub" id="sizes-sub">So Bloom can show you things that&rsquo;ll actually fit.
          You can change this any time from your profile.</p>
       <div id="sizes-groups"></div>
     </div>
@@ -1039,19 +1198,9 @@ ul{margin:0;padding:0;list-style:none}
           <div id="search-groups"></div>
         </div>
       </div>
-      <!-- Arriving from a tag saved on the profile, there is nothing to type:
-           the search has already been made. So the pill gives way to a plain
-           title, and the input comes back only once you ask to add more. -->
-      <div class="refine-head" id="refine-head" hidden>
-        <button id="refine-back" aria-label="Back"><svg class="ico"><use href="#i-back"/></svg></button>
-        <h2>I&rsquo;m looking for&hairsp;.&hairsp;.&hairsp;.</h2>
-      </div>
     </header>
     <div class="search-body">
       <div class="search-picked" id="search-picked" hidden></div>
-      <button class="refine-add" id="refine-add" hidden>
-        <svg class="ico ico-sm"><use href="#i-plus"/></svg>Add more tags
-      </button>
       <div id="search-results"></div>
     </div>
   </div>
@@ -1075,6 +1224,9 @@ ul{margin:0;padding:0;list-style:none}
 
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+/* ?open=seeking drops you straight into the tag editor, for reviewing it
+   without walking the profile every time. */
+const URLQ = new URLSearchParams(location.search);
 
 const GARMENTS = ['g-tee','g-jacket','g-dress','g-shorts','g-blouse'];
 const TINTS    = ['t-sand','t-denim','t-slate','t-blush','t-olive'];
@@ -1124,6 +1276,31 @@ let listings = [
   { id:9, title:'Oversized denim jacket',     size:'Womens Size M', cat:'outerwear', fit:'M',   user:'jo_lin',  loc:'Greenpoint, NY', tint:'t-denim', glyph:'g-jacket', shots:3,
     tags:['Denim','Vintage','Oversized'],
     desc:"Mid wash, dropped shoulder. Sized up on purpose — wears like a shacket." },
+  /* maya_b carries a fuller closet so a visited profile is long enough to
+     scroll — the collapsed header can't appear on a two-item grid. */
+  { id:22, title:'Cropped leather jacket', size:'Womens Size S', cat:'outerwear', fit:'S',  user:'maya_b',  loc:'Bushwick, NY',   tint:'t-ink',   glyph:'g-jacket', shots:3,
+    tags:['Leather','Cropped','Vintage'],
+    desc:"Lambskin, boxy through the shoulders. Lining replaced last winter." },
+  { id:23, title:'Ribbed cotton tank',     size:'Womens Size S', cat:'tops',      fit:'S',  user:'maya_b',  loc:'Bushwick, NY',   tint:'t-sand',  glyph:'g-tee',    shots:2,
+    tags:['Cotton','Cropped','Layering'],
+    desc:"Bought three, wear one. Never washed hot, still holds its shape." },
+  { id:24, title:'Carhartt work pants',    size:'Size 30',       cat:'bottoms',   fit:'30', user:'maya_b',  loc:'Bushwick, NY',   tint:'t-olive', glyph:'g-shorts', shots:3,
+    tags:['Workwear','Utility','Broken in'],
+    desc:"Double knee, faded exactly where you'd want. Hem taken up an inch." },
+  { id:25, title:'Silver chain belt',      size:'One size',      cat:'accessories', fit:null, user:'maya_b', loc:'Bushwick, NY',  tint:'t-slate', glyph:'g-scarf',  shots:2,
+    tags:['Y2K','Deadstock','Printed'],
+    desc:"Never worn, tags still on. Bought for an outfit that never happened." },
+  /* Three deliberately long titles so the grid's tracking title has something
+     to track — real listings are named like this more often than not. */
+  { id:19, title:"Vintage Levi's 501 high-waisted mom jeans", size:'Size 28',      cat:'bottoms',   fit:'28', user:'jo_lin',  loc:'Greenpoint, NY', tint:'t-denim', glyph:'g-shorts', shots:3,
+    tags:['Denim','Vintage','Deadstock'],
+    desc:"True 501s, button fly, sits at the natural waist. Hem is original." },
+  { id:20, title:'Hand-knit oversized wool cardigan in oatmeal', size:'Womens Size L', cat:'outerwear', fit:'L', user:'ines_k', loc:'Bed-Stuy, NY',   tint:'t-sand',  glyph:'g-jacket', shots:2,
+    tags:['Handmade','Oversized','Knit'],
+    desc:"Made by my aunt, worn twice. Undyed wool, slight halo, no pilling." },
+  { id:21, title:'Reformation floral midi dress with tie back', size:'Womens Size M', cat:'dresses', fit:'M', user:'tasha_p', loc:'Crown Hts, NY',  tint:'t-blush', glyph:'g-dress',  shots:4,
+    tags:['Floral','Midi','Cottagecore'],
+    desc:"Wore it to one wedding. Ties at the back, side zip, fully lined." },
   { id:10, title:'Prairie midi dress',        size:'Womens Size S', cat:'dresses',   fit:'S',   user:'tasha_p', loc:'Crown Hts, NY',  tint:'t-sand',  glyph:'g-dress',  shots:2,
     tags:['Cottagecore','Floral','Midi'],
     desc:"Tiered cotton with a square neck. Ties at the back, pockets in the seams." },
@@ -1202,12 +1379,46 @@ const saveProfile = () => {
 };
 const sizeForCat = c => (SIZE_OF[c] ? mySizes[SIZE_OF[c]] : null);
 
-const faves = new Set([4]);
+/* Seeded with other people's listings — id 4 is Sally's own tee, which she
+   can't favourite, so it had no business sitting in her Faves.
+   7 Doc Martens (maya_b) · 5 Embroidered Floral Blouse (jo_lin) · 8 Silk scarf (ines_k) */
+const faves = new Set([7, 5, 8]);
 
-const WARDROBE = ['Vintage','Cottagecore','Y2K','Thrifted','Denim heavy','Loud prints','Secondhand only'];
+/* Nobody writes these — they're the tags on your own listings, most-used
+   first. A closet describes itself, and a hand-kept copy would drift from it. */
+const wardrobeOf = items => {
+  const n = {};
+  items.forEach(i => (i.tags || []).forEach(t => n[t] = (n[t] || 0) + 1));
+  return Object.keys(n).sort((a, b) => n[b] - n[a] || a.localeCompare(b)).slice(0, 12);
+};
 /* These double as saved searches, so they're drawn from the real listing
    vocabulary — a chip that returns nothing would be a dead end. */
 const SEEKING  = ['Vintage','Denim','Y2K','Cottagecore','Oversized','Embroidered'];
+let MY_BIO = "Hi my name is Sally I'm a cool gal from Texas who just moved here from " +
+  "Texas I already said that lol whahaha I'm so random and quirky lol xD Anyway yeah " +
+  "so\u2009.\u2009.\u2009. I just moved here!! Wow and also I have a lot of clothes, this is me " +
+  "writing a loooooooooooooong description about myself I am so cool and fun pls swap with me xoXO";
+
+/* Everyone else. Their listings come from the feed, so this holds only what a
+   listing can't tell you. Pronouns nobody stated default to they/them. */
+const ME = 'sally_43';
+const PEOPLE = {
+  maya_b:  { pronouns:'they/them', loc:'Bushwick, NY',
+    bio:"Mostly here for boots and outerwear. I resole everything, so nothing leaves my closet in bad shape.",
+    seeking:['Denim','Utility','Layering'] },
+  devon_r: { pronouns:'they/them', loc:'Ridgewood, NY',
+    bio:"Cleaning out a decade of cargo pants. Everything I list is washed, measured and honest about its flaws.",
+    seeking:['Vintage','Leather','Graphic tee'] },
+  ines_k:  { pronouns:'they/them', loc:'Bed-Stuy, NY',
+    bio:"I sew, so a lot of what I have is handmade or altered. Happy to take things that need mending.",
+    seeking:['Cotton','Gingham','Embroidered'] },
+  jo_lin:  { pronouns:'they/them', loc:'Greenpoint, NY',
+    bio:"Slowly trading my way out of fast fashion. Prefer swaps over selling — I'd rather things stay in rotation.",
+    seeking:['Cottagecore','Midi','Floral'] },
+  tasha_p: { pronouns:'they/them', loc:'Crown Hts, NY',
+    bio:"Runner, so half my closet is activewear I've outgrown. The other half is dresses I never wear.",
+    seeking:['Y2K','Cropped','Cotton'] },
+};
 
 const messages = [
   { user:'username_445', line:'Supporting line text lorem ipsum dolor sit amet, consectetur.', tint:'t-blush', glyph:'g-tee' },
@@ -1243,12 +1454,14 @@ function gridCard(item, { owner = true } = {}) {
       ${ph(item.tint, item.glyph)}
       ${owner ? `<div class="avatar owner">${item.user[0].toUpperCase()}</div>` : ''}
     </button>
-    <h3 class="card-title">${item.title}</h3>
+    <h3 class="card-title"><span>${item.title}</span></h3>
     <div class="card-foot">
       <span class="size-caption">${item.size}</span>
+      ${/* nothing to save about something already in your closet */''}
+      ${item.user === ME ? '' : `
       <button class="heart ${faves.has(item.id) ? 'is-on' : ''}" data-fave="${item.id}" aria-label="Favorite">
         <svg class="ico"><use href="#i-heart"/></svg>
-      </button>
+      </button>`}
     </div>
   </article>`;
 }
@@ -1277,20 +1490,19 @@ function feedCard(item, tap = 'listing') {
       <div class="post-user"><b>${item.user}</b><span>${item.loc || 'Brooklyn, NY'}</span></div>
       <button aria-label="More"><svg class="ico"><use href="#i-more"/></svg></button>
     </div>
-    ${photoRail(item, tap)}
     <h3 class="post-title">${item.title}</h3>
+    ${photoRail(item, tap)}
     <p class="post-desc">${item.desc || ''}</p>
     <div class="post-foot">
-      <div class="chip-strip">
-        <span class="size-caption">${item.size}</span>
-        ${(item.tags || []).map(t => `<span class="chip">${t}</span>`).join('')}
-      </div>
+      <span class="size-caption">${item.size}</span>
+      ${/* nothing to favourite or message about on something you posted */''}
+      ${item.user === ME ? '' : `
       <div class="post-actions">
         <button class="heart ${faves.has(item.id) ? 'is-on' : ''}" data-fave="${item.id}" aria-label="Favorite">
           <svg class="ico"><use href="#i-heart"/></svg>
         </button>
         <button aria-label="Message"><svg class="ico"><use href="#i-mail"/></svg></button>
-      </div>
+      </div>`}
     </div>
   </article>`;
 }
@@ -1302,31 +1514,37 @@ let openId = null;
 function renderListing() {
   const item = allListings().find(i => i.id === openId);
   if (!item) return;
+  /* whose post this is decides the whole chrome: edit up top for yours,
+     heart and message at the foot for everyone else's */
+  $('#s-listing').classList.toggle('is-mine', item.user === ME);
   $('#listing-body').innerHTML = `
     <div class="listing">
-      ${photoRail(item, 'zoom')}
-      <button class="listing-owner" data-goto="profile">
-        ${avatar(item.user)}
-        <div class="who"><b>${item.user}</b><span>${item.loc || 'Brooklyn, NY'}</span></div>
-        <svg class="ico"><use href="#i-arrow-r"/></svg>
-      </button>
+      <div class="listing-owner">
+        <button class="listing-who" data-profile="${item.user}">
+          ${avatar(item.user)}
+          <div class="who"><b>${item.user}</b><span>${item.loc || 'Brooklyn, NY'}</span></div>
+        </button>
+        ${item.user === ME ? `<button class="edit-post" data-edit-post
+          aria-label="Edit this post"><svg class="ico"><use href="#i-pencil"/></svg></button>` : ''}
+      </div>
       <h1>${item.title}</h1>
+      ${photoRail(item, 'zoom')}
       <p class="listing-desc">${item.desc || ''}</p>
       <div class="listing-size"><span class="size-caption">${item.size}</span></div>
-      <h3>Tags</h3>
       <div class="listing-tags">
         ${(item.tags || []).map(t => `<span class="chip">${t}</span>`).join('') ||
           '<span class="chip dim">No tags</span>'}
       </div>
     </div>
+    ${item.user === ME ? '' : `
     <div class="listing-actions">
       <button class="heart ${faves.has(item.id) ? 'is-on' : ''}" data-fave="${item.id}" aria-label="Favorite">
         <svg class="ico"><use href="#i-heart"/></svg>
       </button>
       <button class="btn btn-filled" data-toast="Swap request sent to ${item.user}">
-        <svg class="ico ico-sm"><use href="#i-mail"/></svg>Request swap
+        <svg class="ico ico-sm"><use href="#i-mail"/></svg>Message
       </button>
-    </div>`;
+    </div>`}`;
 }
 
 function openListing(id) {
@@ -1335,14 +1553,62 @@ function openListing(id) {
   closeSearch(true);      /* search sits above the screens — get out of its way */
   goto('listing', true);
 }
-$('#listing-back').addEventListener('click', goBack);
+/* delegated: the pencil is re-rendered with the listing. No edit flow yet, so
+   this opens the post composer — the closest real screen, though it doesn't
+   carry the listing's current values in. */
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-edit-post]')) openFlow();
+});
 
 /* ── renderers ─────────────────────────────────────────────── */
+/* Home is the results page. A saved tag from your profile doesn't open a screen
+   of its own — it filters the one you already know, and the filter row is the
+   only thing that appears. */
+let filterFrom = null;          /* whose profile the back arrow returns to, if any */
+
+function homeList() { return nothingPicked() ? listings : matches(); }
+
 function renderHome() {
-  $('#home-grid').innerHTML = listings.map(i => gridCard(i)).join('');
-  $('#home-feed').innerHTML = listings.map(i => feedCard(i)).join('');
+  const filtered = !nothingPicked();
+  const list = homeList();
+
+  const bar = $('#home-picked');
+  bar.hidden = !filtered;
+  bar.innerHTML = !filtered ? '' : `
+    ${filterFrom ? `<button class="filter-back" id="home-back" aria-label="${backLabel()}">
+        <svg class="ico"><use href="#i-back"/></svg></button>` : ''}
+    ${pickedChips()}`;
+
+  const count = $('#home-count');
+  count.hidden = !filtered;
+  count.textContent = `${list.length} ${loosened ? 'similar ' : ''}${
+    list.length === 1 ? 'result' : 'results'} near ${myLocation.replace(', NY', '')}`;
+
+  $('#home-grid').innerHTML = list.length
+    ? list.map(i => gridCard(i)).join('')
+    : `<p class="empty" style="grid-column:1/-1">Nothing matches that yet.</p>`;
+  $('#home-feed').innerHTML = list.map(i => feedCard(i)).join('');
+  if (!$('#home-map').hidden) renderPins();
   syncChipStrips();
+  syncTitles();
 }
+
+/* tapping a tag you saved on your profile */
+function applySavedSearch(tag) {
+  picked.cats.clear(); picked.tags.clear(); picked.terms.clear(); picked.sizes = {};
+  (styleTags().includes(tag) ? picked.tags : picked.terms).add(tag);
+  filterFrom = profileUser;      /* so back lands on the profile you tapped from */
+  goto('home');
+  renderHome();
+}
+
+function clearHomeFilter() {
+  picked.cats.clear(); picked.tags.clear(); picked.terms.clear(); picked.sizes = {};
+  filterFrom = null;
+  renderHome();
+}
+const backLabel = () => filterFrom && filterFrom !== ME
+  ? `Back to ${filterFrom}` : 'Back to your profile';
 
 /* Fade a chip strip only on a side that still has something hidden past it —
    so at either end of the scroll that edge comes back clean. */
@@ -1354,21 +1620,102 @@ function fadeStrip(s) {
 
 /* Needs a laid-out element, so this re-runs whenever the feed is shown or the
    window resizes. */
-function syncChipStrips() { $$('.chip-strip, .chip-scroll').forEach(fadeStrip); }
+function syncChipStrips() { $$('.chip-scroll').forEach(fadeStrip); }
+
+/* Only titles that actually overrun get the treatment — a title that fits and
+   still slid around would be motion for its own sake. */
+function syncTitles() {
+  $$('.card-title').forEach(h => {
+    const span = h.firstElementChild;
+    /* a hidden screen measures zero, which reads as "fits" and would quietly
+       disarm every title — leave those alone until they can be measured */
+    if (!span || !h.clientWidth) return;
+    h.classList.remove('is-marquee');
+    const over = span.offsetWidth - h.clientWidth;
+    if (over <= 2) return;
+    h.style.setProperty('--shift', `${over}px`);
+    /* ~28px a second of travel, and travel is 34% of the cycle */
+    h.style.setProperty('--dur', `${Math.max(6, (over / 28) / 0.34).toFixed(1)}s`);
+    h.classList.add('is-marquee');
+  });
+}
+window.addEventListener('resize', syncTitles);
 window.addEventListener('resize', syncChipStrips);
 
 /* scroll doesn't bubble — listen on the capture phase */
 document.addEventListener('scroll', e => {
   const el = e.target;
-  if (el?.classList?.contains('chip-strip') || el?.classList?.contains('chip-scroll')) fadeStrip(el);
+  if (el?.classList?.contains('chip-scroll')) fadeStrip(el);
 }, true);
 
+/* One screen, two designs. Yours is a place you maintain — private sizes, an
+   edit on every section. Theirs is a place you're visiting, so it leads with
+   the reason you came and drops everything you can't act on. */
+let profileUser = ME;
+const isMe = () => profileUser === ME;
+
+/* The header is taller with a swap button than without, so the clamp is
+   measured rather than guessed. A hidden screen measures zero — which would
+   clamp the block shut — so a zero reading is ignored and re-taken once the
+   screen is on. */
+function fitProfileHeader() {
+  const id = $('#profile-head .profile-id');
+  const h = id.scrollHeight;
+  if (!h) return;
+  id.style.setProperty('--id-h', `${h}px`);
+  resetHeaderMetrics?.();
+}
+
+function openProfile(user) {
+  profileUser = user;
+  renderProfile();
+  goto('profile', true);   /* drilled into from a listing, so it earns a back arrow */
+}
+
 function renderProfile() {
-  $('#profile-listings').innerHTML = myListings.map(i => gridCard(i, { owner:false })).join('');
-  const faved = [...listings, ...myListings].filter(i => faves.has(i.id));
+  const me = isMe();
+  const them = PEOPLE[profileUser] || {};
+  /* by owner, out of every post in the app — sally's tee lives in the public
+     array, and splitting the lookup by whose profile it is stranded it */
+  const owned = allListings().filter(i => i.user === profileUser);
+  const p = me
+    ? { pronouns:'she/her', loc:myLocation, bio:MY_BIO, seeking:SEEKING }
+    : { pronouns:them.pronouns || 'they/them', loc:them.loc || 'Brooklyn, NY',
+        bio:them.bio || '', seeking:them.seeking || [] };
+  p.wardrobe = wardrobeOf(owned);
+
+  const scr = $('#s-profile');
+  scr.classList.toggle('is-mine', me);
+  scr.classList.toggle('is-theirs', !me);
+  /* Faves only exists on your own, so land on Listings rather than a dead tab */
+  if (!me && $('#profile-tabs .is-active')?.dataset.tab === 'faves') selectTab('#profile-tabs', 'listings');
+
+  $$('#profile-head .avatar').forEach(a => a.textContent = profileUser[0].toUpperCase());
+  $('#profile-head .profile-mini b').textContent = profileUser;
+  $('#profile-name').textContent = profileUser;
+  $('#profile-meta').textContent = `${p.pronouns} • ${p.loc}`;
+
+
+  $('#profile-listings').innerHTML = owned.length
+    ? owned.map(i => gridCard(i, { owner:false })).join('')
+    : `<p class="empty" style="grid-column:1/-1">Nothing listed yet.</p>`;
+
+  const faved = allListings().filter(i => faves.has(i.id) && i.user !== ME);
   $('#profile-faves').innerHTML = faved.length
     ? faved.map(i => gridCard(i)).join('')
     : `<p class="empty" style="grid-column:1/-1">Nothing faved yet.<br>Tap the heart on a listing to keep it here.</p>`;
+
+  fitProfileHeader();
+
+  syncTitles();
+
+  $('#about-bio').textContent = p.bio;
+  /* Every tag on a profile is a way in: tap it and home filters to it. One
+     rule for both sections and both profiles — on someone else's, "what they
+     have" and "what they want" are exactly the two things worth browsing. */
+  const seekable = t => `<button class="chip" data-seek="${t}">${t}</button>`;
+  $('#wardrobe-chips').innerHTML = p.wardrobe.map(seekable).join('');
+  $('#seeking-chips').innerHTML = p.seeking.map(seekable).join('');
 }
 
 function renderProfileSizes() {
@@ -1379,11 +1726,8 @@ function renderProfileSizes() {
   if (meta) meta.textContent = `she/her • ${myLocation}`;
 }
 
-function renderChips() {
-  $('#wardrobe-chips').innerHTML = WARDROBE.map(t => `<span class="chip">${t}</span>`).join('');
-  $('#seeking-chips').innerHTML  = SEEKING.map(t =>
-    `<button class="chip" data-seek="${t}">${t}</button>`).join('');
-}
+/* kept as a name the search screen already calls; the chips are the profile's */
+const renderChips = renderProfile;
 
 function renderMessages() {
   $('#pane-messages').innerHTML = messages.map(m => `<li class="msg">
@@ -1424,17 +1768,85 @@ function renderEvents() {
    else's profile — records what it covered and earns one. */
 const trail = [];
 const currentScreen = () => ($('.screen.is-active')?.id || 's-home').slice(2);
+const bodyOf = name => $(`#s-${name} .screen-body`);
+const scrollOf = name => bodyOf(name)?.scrollTop || 0;
 
-function showScreen(name) {
+/* Drilling in slides the new screen over the old from the right; backing out
+   reverses it. The screen underneath drifts a quarter of the way to sell the
+   depth rather than sitting frozen behind a moving pane. */
+const PUSH_MS = 300, PUSH_EASE = 'cubic-bezier(.32,.72,0,1)';
+let pushAnim = null, pushCleanup = null;
+
+function slideScreens(prev, next, dir) {
+  if (!prev || prev === next || !next.animate) return;
+  /* Clear whatever the last slide left behind before cancelling it. A cancelled
+     animation rejects its .finished, so its own cleanup never ran — the screen
+     it was carrying kept `is-leaving` and sat on stage until some later
+     transition happened to involve it again. */
+  pushCleanup?.();
+  pushAnim?.forEach(a => a.cancel());
+  const done = () => {
+    prev.classList.remove('is-leaving', 'is-front', 'is-back', 'over-bar');
+    next.classList.remove('is-front', 'is-back', 'over-bar');
+    syncTopBar();          /* the bar is covered by now — hiding it can't be seen */
+    pushAnim = null; pushCleanup = null;
+  };
+  pushCleanup = done;
+  prev.classList.add('is-leaving');
+  next.classList.add(dir > 0 ? 'is-front' : 'is-back');
+  prev.classList.add(dir > 0 ? 'is-back' : 'is-front');
+  /* Only the screen that's meant to be in front may ride over the bar. Applying
+     it to whichever screen lacks a bar put a *departing* one on top of the page
+     arriving underneath it — which then hung there and vanished at the end. */
+  const front = dir > 0 ? next : prev;
+  front.classList.toggle('over-bar', !BAR_SCREENS.includes(front.id.slice(2)));
+  const opts = { duration: PUSH_MS, easing: PUSH_EASE };
+  const arriving = [{ transform: `translateX(${dir > 0 ? '100%' : '-25%'})` },
+                    { transform: 'translateX(0)' }];
+  const departing = [{ transform: 'translateX(0)' },
+                     { transform: `translateX(${dir > 0 ? '-25%' : '100%'})` }];
+  const anims = [next.animate(arriving, opts), prev.animate(departing, opts)];
+
+  /* When only one of the two screens carries the bar, the bar belongs to that
+     page and travels with it — arriving alongside a listing you opened from a
+     profile, rather than being there ahead of it. When both carry it (home to a
+     listing) it stays put, which is the whole point of it being persistent. */
+  const has = el => BAR_SCREENS.includes(el.id.slice(2));
+  if (has(prev) !== has(next)) {
+    anims.push($('#app-bar').animate(has(next) ? arriving : departing, opts));
+  }
+  pushAnim = anims;
+  Promise.all(anims.map(a => a.finished))
+    .then(() => { if (pushAnim === anims) done(); }, () => {});   /* cancelled: the next slide cleans up */
+}
+
+function showScreen(name, dir = 0) {
+  const prev = $('.screen.is-active'), next = $('#s-' + name);
   $$('.screen').forEach(s => s.classList.toggle('is-active', s.id === 's-' + name));
-  $$('.screen-body').forEach(b => b.scrollTop = 0);
+  if (dir) slideScreens(prev, next, dir);
+  /* Only the arriving screen resets. Zeroing the one you're leaving made it
+     jump to the top mid-slide and threw away where you'd been reading; a pop
+     doesn't reset at all, because goBack restores the saved position. */
+  if (dir >= 0) $$('.screen-body', next).forEach(b => b.scrollTop = 0);
+  if (name === 'profile') {
+    /* Only when the profile is the screen arriving, and only when its scroll was
+       reset with it. Doing this unconditionally expanded the header of the
+       profile you were leaving — it grew mid-slide, shoved its own scroll, and
+       the scroll listener snapped it shut again. A pop leaves it alone: goBack
+       restores the scroll and lets the listener settle the header to match. */
+    if (dir >= 0) $('#profile-head')?.classList.remove('is-compact');
+    fitProfileHeader();                         /* now that it can be measured */
+  }
+  syncTitles();                                /* likewise for the grid titles */
+  syncTopBar(dir !== 0);
   syncBack();
 }
 
 function goto(name, push = false) {
   if (name === 'post') { openFlow(); return; }
   if (push) {
-    trail.push({ screen: currentScreen(), openId });
+    trail.push({ screen: currentScreen(), openId, scroll: scrollOf(currentScreen()) });
+    return showScreen(name, 1);          /* drilling in — slide it over */
   } else {
     trail.length = 0;
     /* only a root move moves the light — anything pushed on top (a listing, an
@@ -1450,7 +1862,26 @@ function goBack() {
   const prev = trail.pop();
   if (!prev) return showScreen('home');
   if (prev.screen === 'listing') { openId = prev.openId; renderListing(); }
-  showScreen(prev.screen);
+  showScreen(prev.screen, -1);           /* backing out — slide it away */
+  /* put the reader back exactly where they left. The synthetic scroll lets the
+     profile's collapsing header settle to the restored position. */
+  const body = bodyOf(prev.screen);
+  if (body) { body.scrollTop = prev.scroll || 0; body.dispatchEvent(new Event('scroll')); }
+}
+
+/* The bar belongs to the home stack — a listing is still "in" home, so it keeps
+   the bar; the other roots bring their own headers. */
+const BAR_SCREENS = ['home', 'listing'];
+function syncTopBar(defer = false) {
+  const lead = $('#menu-btn'), deep = trail.length > 0;
+  $('use', lead).setAttribute('href', deep ? '#i-back' : '#i-menu');
+  lead.setAttribute('aria-label', deep ? 'Back' : 'View options');
+  const bar = $('#app-bar'), wants = BAR_SCREENS.includes(currentScreen());
+  /* Revealing happens at once — the departing page is over the bar and covers
+     it until it clears. Hiding waits for the arriving page to cover it, so the
+     bar never blinks out while it's still in view. */
+  if (wants) bar.classList.remove('is-hidden');
+  else if (!defer) bar.classList.add('is-hidden');
 }
 
 function syncBack() {
@@ -1461,11 +1892,21 @@ function syncBack() {
   btn.setAttribute('aria-hidden', String(root));
 }
 $('#profile-back').addEventListener('click', goBack);
-syncBack();   /* the app boots on a root, so start with no arrow */
+syncBack();     /* the app boots on a root, so start with no arrow */
+syncTopBar();
 
 document.addEventListener('click', e => {
   const nav = e.target.closest('[data-goto]');
-  if (nav) goto(nav.dataset.goto, !nav.classList.contains('navbtn'));
+  if (nav) {
+    /* the tab is always your own profile, whoever you were just looking at */
+    if (nav.dataset.goto === 'profile' && nav.classList.contains('navbtn') && !isMe()) {
+      profileUser = ME; renderProfile();
+    }
+    goto(nav.dataset.goto, !nav.classList.contains('navbtn'));
+  }
+
+  const who = e.target.closest('[data-profile]');
+  if (who) openProfile(who.dataset.profile);
 
   const fave = e.target.closest('[data-fave]');
   if (fave) {
@@ -1622,7 +2063,7 @@ function renderPins() {
   centerOn(...SHEET.center, false);
 
   $$('.pin', sheet).forEach(p => p.remove());
-  listings.forEach(item => {
+  homeList().forEach(item => {
     const [fx, fy] = sheetFrac(...coordsFor(item));
     const b = document.createElement('button');
     b.className = `pin ${item.tint}`;
@@ -1638,6 +2079,7 @@ function renderPins() {
 const mapEl = $('#home-map');
 let dragging = false, moved = 0, fromX = 0, fromY = 0, atX = 0, atY = 0;
 let justDragged = false;           // set per pointer sequence, never sticky
+let captured = false;              // whether this sequence became a real drag
 
 mapEl.addEventListener('pointerdown', e => {
   if (e.target.closest('.callout')) return;
@@ -1645,13 +2087,18 @@ mapEl.addEventListener('pointerdown', e => {
   fromX = e.clientX; fromY = e.clientY;
   atX = sheetX; atY = sheetY;
   mapEl.classList.add('is-dragging');
-  try { mapEl.setPointerCapture(e.pointerId); } catch {}
 });
 
 mapEl.addEventListener('pointermove', e => {
   if (!dragging) return;
   const dx = e.clientX - fromX, dy = e.clientY - fromY;
   moved = Math.max(moved, Math.abs(dx) + Math.abs(dy));
+  /* Capture only once the gesture is genuinely a drag. Capturing on pointerdown
+     retargets the trailing click to the map itself, so a tap on a pin arrived
+     as a tap on the basemap — which dismisses instead of opening. */
+  if (!captured && moved > 6) {
+    try { mapEl.setPointerCapture(e.pointerId); captured = true; } catch {}
+  }
   setSheet(atX + dx, atY + dy, false);
 });
 
@@ -1660,7 +2107,10 @@ function endDrag(e) {
   dragging = false;
   justDragged = moved > 6;         // a tap wobbles a few px; a drag doesn't
   mapEl.classList.remove('is-dragging');
-  try { mapEl.releasePointerCapture(e.pointerId); } catch {}
+  if (captured) {
+    try { mapEl.releasePointerCapture(e.pointerId); } catch {}
+    captured = false;
+  }
 }
 mapEl.addEventListener('pointerup', endDrag);
 mapEl.addEventListener('pointercancel', endDrag);
@@ -1688,7 +2138,6 @@ function showCallout(item, pin) {
     <div class="callout-photo">${ph(item.tint, item.glyph)}</div>
     <div class="callout-foot">
       <span class="size-caption">${item.size}</span>
-      ${avatar(item.user)}
     </div>`;
   /* Same coordinate space as the pins. pin.style.top is the pin's center, so
      clear its 17px radius plus the 10px tail, and leave 2px of daylight. */
@@ -1715,10 +2164,11 @@ function closeMenu() {
 }
 
 $('#menu-btn').addEventListener('click', () => {
-  /* anchor under whatever height the app bar actually is */
-  const bar = $('#s-home .appbar').getBoundingClientRect();
-  const app = $('.app').getBoundingClientRect();
-  viewMenu.style.top = `${bar.bottom - app.top + 8}px`;
+  /* the same slot goes back once you've drilled in — a listing has no views */
+  if (trail.length) return goBack();
+  /* offsetHeight, not a client rect — the phone frame is scaled, and a top
+     written from scaled pixels lands the menu part-way up the bar */
+  viewMenu.style.top = `${$('#app-bar').offsetHeight + 8}px`;
   viewMenu.classList.add('is-open');
   menuScrim.classList.add('is-open');
 });
@@ -1733,11 +2183,14 @@ document.addEventListener('keydown', e => {
 });
 
 /* tab bars */
+function selectTab(barSel, tab) {
+  const scope = barSel === '#profile-tabs' ? '#s-profile' : '#s-messages';
+  $$(barSel + ' button').forEach(b => b.classList.toggle('is-active', b.dataset.tab === tab));
+  $$(scope + ' [data-pane]').forEach(p => p.hidden = p.dataset.pane !== tab);
+}
 function wireTabs(barSel, scope) {
-  $$(barSel + ' button').forEach(btn => btn.addEventListener('click', () => {
-    $$(barSel + ' button').forEach(b => b.classList.toggle('is-active', b === btn));
-    $$(scope + ' [data-pane]').forEach(p => p.hidden = p.dataset.pane !== btn.dataset.tab);
-  }));
+  $$(barSel + ' button').forEach(btn =>
+    btn.addEventListener('click', () => selectTab(barSel, btn.dataset.tab)));
 }
 wireTabs('#profile-tabs', '#s-profile');
 wireTabs('#msg-tabs', '#s-messages');
@@ -1856,7 +2309,10 @@ let sizeDraft = { ...mySizes };
 let locDraft = myLocation;
 
 function renderSizes() {
+  /* Location is an onboarding question, not part of your sizes — asking for it
+     again under a "My sizes" heading would be a second subject on the page. */
   $('#sizes-groups').innerHTML = `
+    ${sizesMode !== 'onboarding' ? '' : `
     <div class="sizes-group">
       <h3>Location</h3>
       <div class="loc-field">
@@ -1864,7 +2320,7 @@ function renderSizes() {
         <input id="loc-input" placeholder="Enter city, zip" value="${locDraft}"
                aria-label="Your location">
       </div>
-    </div>
+    </div>`}
     ${Object.keys(SIZE_TIERS).map(sys => `
     <div class="sizes-group">
       <h3>${SIZE_LABEL[sys]}</h3>
@@ -1879,7 +2335,28 @@ function renderSizes() {
     </div>`).join('')}`;
 }
 
-function openSizes() {
+/* Same screen, two occasions. Setting up, it introduces itself and offers a
+   way past; editing, it's the section you tapped — and pointing you at the
+   profile you're already standing in would be nonsense. */
+const SIZES_COPY = {
+  onboarding: { title:'What are you looking for?',
+    sub:'So Bloom can show you things that\u2019ll actually fit. You can change this any time from your profile.',
+    out:'Skip for now' },
+  edit: { title:'My sizes',
+    sub:'So we can show you clothes that actually fit. Only you can see this.' },
+};
+
+let sizesMode = 'edit';
+function openSizes(mode = 'edit') {
+  sizesMode = mode;
+  const copy = SIZES_COPY[mode];
+  $('#sizes-title').textContent = copy.title;
+  $('#sizes-sub').textContent = copy.sub;
+  /* editing dismisses with the same x as every other sheet; only onboarding,
+     which you can't back out of, offers a way past instead */
+  $('#sizes-skip').hidden = !copy.out;
+  if (copy.out) $('#sizes-skip').textContent = copy.out;
+  $('#sizes-close').hidden = !!copy.out;
   sizeDraft = { ...mySizes };
   locDraft = myLocation;
   renderSizes();
@@ -1894,8 +2371,13 @@ $('#sizes-save').addEventListener('click', () => {
   try { localStorage.setItem('bloom.onboarded', '1'); } catch {}
   renderProfileSizes();
   closeSizes();
-  toast(`Saved — ${myLocation.replace(', NY','')}, tops ${mySizes.top}`);
+  toast('Your size preferences have been saved');
 });
+/* No compose screen yet, so Message opens the inbox rather than pretending to
+   have sent something. Same destination from the pill and the collapsed icon. */
+$('#profile-swap').addEventListener('click', () => goto('messages'));
+$('#profile-msg-mini').addEventListener('click', () => goto('messages'));
+$('#sizes-close').addEventListener('click', closeSizes);
 $('#sizes-skip').addEventListener('click', () => {
   try { localStorage.setItem('bloom.onboarded', '1'); } catch {}
   closeSizes();
@@ -2169,7 +2651,7 @@ function renderSearch() {
   /* browsable groups — hidden while type-ahead is showing */
   const groups = $('#search-groups');
   groups.hidden = !!q;
-  $('#refine-add').hidden = !collapsedRefine();
+
   /* one size picker per chosen category that has a size system, so "L" is
      always attached to the thing it sizes */
   const sizePickers = [...picked.cats].filter(c => SIZE_OF[c]).map(c => `
@@ -2207,8 +2689,7 @@ function renderSearch() {
   /* Only in a search you started yourself, and only for what isn't on the
      profile already. Refining a saved tag came *from* the profile, so the
      offer to save it back is noise on a screen that should just show results. */
-  const unsaved = searchMode === 'search'
-    && [...picked.tags, ...picked.terms].filter(t => !SEEKING.includes(t)).length;
+  const unsaved = [...picked.tags, ...picked.terms].filter(t => !SEEKING.includes(t)).length;
   $('#search-results').innerHTML = `
     <div class="results-head">
       <h3 class="search-sec">${found.length} ${loosened ? 'similar ' : ''}${noun}
@@ -2220,6 +2701,7 @@ function renderSearch() {
 
   /* the rows were just rebuilt, so re-measure which edges need fading */
   syncChipStrips();
+  syncTitles();
   /* picking a category grows the menu by a size row — the grid follows it down.
      Skipped mid-animation, when the panel's height is still being driven. */
   if (dropOpen && dropAnim?.playState !== 'running') syncBodyShift(OPEN_MS);
@@ -2241,17 +2723,7 @@ function setQuery(v) {
   renderSearch();
 }
 
-/* Two ways in. 'search' starts empty and the input is the whole point.
-   'refine' arrives from a tag already saved on the profile: the search exists,
-   so the screen leads with its results and keeps the tools out of the way. */
-let searchMode = 'search', refineOpen = false, dropOpen = false;
-const collapsedRefine = () => searchMode === 'refine' && !refineOpen;
-
-function applySearchChrome() {
-  const folded = collapsedRefine();
-  $('#search-drop').hidden = folded;
-  $('#refine-head').hidden = !folded;
-}
+let dropOpen = false;
 
 /* The results ride down on the card's bottom edge rather than hiding under it.
    Measured from layout offsets, not getBoundingClientRect — the phone frame is
@@ -2278,7 +2750,7 @@ let dropAnim = null;
 function setDrop(open, opts = true) {
   const { card: animCard = true, shift: animShift = true } =
     opts === true ? {} : opts === false ? { card: false, shift: false } : opts;
-  const want = open && !collapsedRefine();
+  const want = open;
   if (want === dropOpen && !dropAnim) return;   /* already there — don't restage it */
   dropOpen = want;
   const card = $('#search-drop'), panel = $('#drop-panel');
@@ -2304,35 +2776,23 @@ function setDrop(open, opts = true) {
   }
 }
 
-function openSearch(seed = [], mode = 'search') {
+function openSearch() {
   picked.cats.clear(); picked.tags.clear(); picked.terms.clear(); picked.sizes = {};
-  seed.forEach(t => (styleTags().includes(t) ? picked.tags : picked.terms).add(t));
-  searchMode = mode; refineOpen = false;
-  applySearchChrome();
+  filterFrom = null;
   setQuery('');
   const el = $('#search-screen');
   screenAnim?.cancel();
   el.classList.add('is-open');
-  /* a search you start yourself opens with the menu already down; one you
-     arrived at from a saved tag opens on its results. Either way the results
-     are placed, not slid — the crossfade is what moves them. */
-  setDrop(mode === 'search', { card: true, shift: false });
+  /* the results are placed, not slid — the crossfade is what moves them */
+  setDrop(true, { card: true, shift: false });
   syncChipStrips();   /* renderSearch ran while hidden — rows measured zero */
   if (el.animate) {
     screenAnim = el.animate([{ opacity: 0 }, { opacity: 1 }],
       { duration: FADE_IN_MS, easing: 'cubic-bezier(.22,.61,.36,1)' });
   }
-  if (!collapsedRefine()) $('#search-input').focus();
-}
-
-/* Unfolding the tools: the title gives the pill back and the menu drops down. */
-function openRefineTools() {
-  refineOpen = true;
-  applySearchChrome();
-  renderSearch();
-  setDrop(true);
   $('#search-input').focus();
 }
+
 /* Dissolves back to whatever it was covering. `instant` is for the case where
    the screen underneath is about to change anyway — opening a listing — where
    fading out over a page that's already gone reads as a glitch. */
@@ -2360,8 +2820,25 @@ function commitTerm(text) {
 /* wrapped, not passed by reference — a listener hands its handler the event,
    which would arrive as a truthy `instant` and skip the fade every time */
 $('#search-back').addEventListener('click', () => closeSearch());
-$('#refine-back').addEventListener('click', () => closeSearch());
-$('#refine-add').addEventListener('click', openRefineTools);
+/* the filter row's own two exits */
+document.addEventListener('click', e => {
+  if (e.target.closest('#home-back')) {
+    const who = filterFrom;
+    clearHomeFilter();
+    if (who && who !== profileUser) { profileUser = who; renderProfile(); }
+    /* someone else's profile is a place you drilled into, so it keeps its own
+       back arrow and leaves the Profile tab unlit */
+    goto('profile', who !== ME);
+  }
+  else if (e.target.closest('#home-picked #search-reset')) clearHomeFilter();
+  else if (e.target.closest('#home-picked [data-drop-tag], #home-picked [data-drop-term], #home-picked [data-drop-cat]')) {
+    const el = e.target.closest('[data-drop-tag], [data-drop-term], [data-drop-cat]');
+    picked.tags.delete(el.dataset.dropTag);
+    picked.terms.delete(el.dataset.dropTerm);
+    if (el.dataset.dropCat) toggleCategory(el.dataset.dropCat);
+    renderHome();
+  }
+}, true);
 $('#search-input').addEventListener('input', e => { query = e.target.value; setTrailing(); renderSearch(); });
 $('#search-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); commitTerm(query); }
@@ -2381,8 +2858,8 @@ $('.search-body').addEventListener('scroll', () => { if (dropOpen) setDrop(false
 
 /* The home search bar is a button in disguise: readonly so tapping it opens
    this screen instead of raising a keyboard against a field that does nothing. */
-$('#s-home .searchbar input').readOnly = true;
-$('#s-home .searchbar').addEventListener('click', e => {
+$('#app-bar .searchbar input').readOnly = true;
+$('#app-bar .searchbar').addEventListener('click', e => {
   if (!e.target.closest('#menu-btn')) openSearch();
 });
 
@@ -2414,9 +2891,7 @@ document.addEventListener('click', e => {
 
   if (e.target.closest('#search-reset')) {
     picked.cats.clear(); picked.tags.clear(); picked.terms.clear(); picked.sizes = {};
-    /* clearing a saved search leaves nothing to look at, so hand back the
-       tools rather than an empty page with one button on it */
-    collapsedRefine() ? openRefineTools() : renderSearch();
+    renderSearch();
   }
 
   if (e.target.closest('#drop-fit')) { clearSizes(); renderSearch(); }
@@ -2434,9 +2909,7 @@ document.addEventListener('click', e => {
 
   /* a profile "looking for" chip runs that search */
   const saved = e.target.closest('[data-seek]');
-  /* stays on the profile underneath, so closing the search puts you back where
-     you tapped rather than on home */
-  if (saved) openSearch([saved.dataset.seek], 'refine');
+  if (saved) applySavedSearch(saved.dataset.seek);
 });
 
 document.addEventListener('keydown', e => {
@@ -2456,14 +2929,53 @@ function toast(msg) {
 /* ── collapsing profile header ─────────────────────────────── */
 /* Separate thresholds on purpose: collapsing shortens the header, which can
    nudge scrollTop back under a single threshold and set off a flicker loop. */
+let resetHeaderMetrics;
 (() => {
   const body = $('#s-profile .screen-body');
   const head = $('#profile-head');
+  const COMPACT_AT = 56, EXPAND_AT = 24;
+
+  /* How much body height the header hands back when it collapses. Measured
+     with transitions suppressed — reading offsetHeight mid-animation lies. */
+  let give = 0;
+  /* the header's two heights change with whose profile it is */
+  resetHeaderMetrics = () => { give = 0; };
+  function measureGive() {
+    const was = head.classList.contains('is-compact');
+    head.classList.add('measuring');
+    head.classList.add('is-compact');
+    const small = head.offsetHeight;
+    head.classList.remove('is-compact');
+    const big = head.offsetHeight;
+    head.classList.toggle('is-compact', was);
+    head.offsetHeight;                    /* flush before transitions come back */
+    head.classList.remove('measuring');
+    give = big - small;
+  }
+
+  /* Collapsing lengthens the body, which shortens the scroll range by exactly
+     `give`. On a short tab that can leave less range than the trigger needs:
+     you scroll past 56, the header collapses, your position is clamped under
+     24, and it expands again — a loop that pins you near the top. So only
+     collapse when the page can still be scrolled while compact. */
+  function worthCollapsing() {
+    if (!give) measureGive();
+    const compactRange = body.scrollHeight - body.clientHeight
+      - (head.classList.contains('is-compact') ? 0 : give);
+    return compactRange > COMPACT_AT + 8;
+  }
+
   body.addEventListener('scroll', () => {
     const y = body.scrollTop;
-    if (y > 56) head.classList.add('is-compact');
-    else if (y < 24) head.classList.remove('is-compact');
+    if (y > COMPACT_AT && worthCollapsing()) head.classList.add('is-compact');
+    else if (y < EXPAND_AT) head.classList.remove('is-compact');
   }, { passive: true });
+
+  /* a tab with less content can leave the header stranded compact */
+  $$('#profile-tabs button').forEach(b => b.addEventListener('click', () => {
+    body.scrollTop = 0;
+    head.classList.remove('is-compact');
+  }));
 })();
 
 /* ── phone shell ───────────────────────────────────────────── */
@@ -2494,12 +3006,14 @@ function syncStatusBar() {
   const isOpen = sel => $(sel)?.classList.contains('is-open');
   let tone = '';                                   /* default: ink app bars */
   if (isOpen('#lightbox')) tone = 'on-dark';
-  else if (isOpen('#sizes-screen') || isOpen('#event-sheet')) tone = 'on-cream';
+  else if (isOpen('#event-sheet')) tone = 'on-cream';
+  /* the editing sheets keep the maroon bar, so opening one doesn't flash
+     the top of the screen from dark to light and back */
+  else if (isOpen('#sizes-screen') || isOpen('#edit-sheet')) tone = '';
   else if (isOpen('#post-flow') || isOpen('#search-screen')) tone = '';
   else {
     const active = $('.screen.is-active')?.id;
-    if (active === 's-profile') tone = 'on-berry';
-    else if (active === 's-events') tone = 'on-cream';
+    if (active === 's-events') tone = 'on-cream';
   }
   $('#statusbar').className = `statusbar${tone ? ' ' + tone : ''}`;
 }
@@ -2509,11 +3023,113 @@ new MutationObserver(syncStatusBar).observe($('.app'), {
 syncStatusBar();
 
 /* ── boot ──────────────────────────────────────────────────── */
-$('#edit-profile').addEventListener('click', openSizes);
+/* ── section editors ───────────────────────────────────────── */
+/* Prose gets a writing surface, tag sets get the same chip picking used
+   everywhere else, and sizes hand off to the screen that already owns them. */
+const EDITORS = {
+  bio: { title:'About me', saved:'About me', kind:'text',
+         get:() => MY_BIO, set:v => { MY_BIO = v; } },
+  seeking: { title:'I\u2019m looking for\u2009.\u2009.\u2009.', saved:'Your saved tags', kind:'taglist',
+         hint:'Tap one on your profile and it runs as a search.',
+         get:() => SEEKING, set:v => SEEKING.splice(0, SEEKING.length, ...v) },
+};
+let editing = null, draftTags = [];
+
+function renderDraftTags() {
+  $('#edit-chosen').innerHTML = draftTags.length
+    ? draftTags.map(t =>
+        `<button class="chip-on" data-unpick="${t}">${t}<svg class="ico"><use href="#i-close"/></svg></button>`).join('')
+    : `<p class="edit-empty">No tags yet. Add one below.</p>`;
+}
+
+/* Suggestions come from the same walk the search bar uses, so a tag you save
+   here is one the app can actually answer — no saved search that finds nothing.
+   Categories are dropped: "cat:tops" isn't something to be looking for. */
+function renderTagSugs() {
+  const q = $('#tag-input').value.trim();
+  const box = $('#tag-sugs');
+  if (!q) { box.innerHTML = ''; return; }
+  const hits = suggestFor(q)
+    .filter(t => !t.startsWith('cat:') && !draftTags.includes(t));
+  box.innerHTML = hits.length
+    ? hits.map(t => `<button class="chip" data-add-tag="${t}">${t}<i>${countFor(t)}</i></button>`).join('')
+    : `<p class="edit-empty">No tags match &ldquo;${q}&rdquo;.</p>`;
+}
+
+function openEditor(kind) {
+  if (kind === 'sizes') return openSizes();
+  const ed = EDITORS[kind];
+  if (!ed) return;
+  editing = kind;
+  $('#edit-title').textContent = ed.title;
+  if (ed.kind === 'text') {
+    $('#edit-body').innerHTML =
+      `<textarea class="edit-area" id="edit-text" aria-label="${ed.title}"></textarea>`;
+    $('#edit-text').value = ed.get();
+  } else {
+    /* Your list is the subject; adding is a side door. Showing the whole
+       vocabulary as a grid made six saved tags look like six of thirty. */
+    draftTags = [...ed.get()];
+    /* Adding comes first and its results drop straight out of the field, the
+       way the search bar behaves everywhere else. Your saved tags sit below,
+       where new ones land — so the list only ever grows toward you. */
+    $('#edit-body').innerHTML = `
+      <div class="tag-entry">
+        <div class="searchbar tag-search">
+          <svg class="ico"><use href="#i-search"/></svg>
+          <input id="tag-input" placeholder="Add a tag&hairsp;.&hairsp;.&hairsp;." aria-label="Find a tag">
+        </div>
+      </div>
+      <div class="edit-tags" id="tag-sugs"></div>
+      <p class="edit-hint">${ed.hint}</p>
+      <div class="edit-chosen" id="edit-chosen"></div>`;
+    renderDraftTags();
+  }
+  $('#edit-sheet').classList.add('is-open');
+}
+
+const closeEditor = () => { $('#edit-sheet').classList.remove('is-open'); editing = null; };
+
+$('#edit-cancel').addEventListener('click', closeEditor);
+$('#edit-save').addEventListener('click', () => {
+  const ed = EDITORS[editing];
+  if (!ed) return closeEditor();
+  if (ed.kind === 'text') ed.set($('#edit-text').value.trim());
+  else ed.set(draftTags);
+  closeEditor();
+  renderProfile();
+  toast(`${ed.saved} updated`);
+});
+
+document.addEventListener('click', e => {
+  const edit = e.target.closest('[data-edit]');
+  if (edit) openEditor(edit.dataset.edit);
+  const add = e.target.closest('[data-add-tag]');
+  if (add) {
+    draftTags.push(add.dataset.addTag);
+    renderDraftTags();
+    $('#tag-input').value = '';
+    renderTagSugs();
+    $('#tag-input').focus();     /* keep the keyboard up for the next one */
+  }
+
+  const drop = e.target.closest('[data-unpick]');
+  if (drop) { draftTags = draftTags.filter(t => t !== drop.dataset.unpick); renderDraftTags(); }
+});
+
+document.addEventListener('input', e => {
+  if (e.target.id === 'tag-input') renderTagSugs();
+});
 
 renderHome(); renderProfile(); renderChips(); renderProfileSizes();
 renderMessages(); renderEvents();
-if (!onboarded) openSizes();
+if (!onboarded) openSizes('onboarding');
+
+if (URLQ.get('open') === 'seeking') {
+  goto('profile');
+  selectTab('#profile-tabs', 'about');
+  openEditor('seeking');
+}
 </script>
 </body>
 </html>
