@@ -1,16 +1,28 @@
-"""Crop the baked basemap down to just what the map view needs, then emit it
-as a data: URI so index.html stays a single portable file."""
+"""Crop the baked basemap to the frame the app needs, downscale it to the size
+it's actually drawn at, and emit it as a data: URI so index.html stays a single
+portable file.
+
+Cropped to an explicit bbox rather than a centre-plus-size: the frame is chosen
+so a 2-mile post radius fits around every neighborhood in HOODS, and that's a
+statement about edges, not about the middle.
+"""
 import math, json, base64, io
 from PIL import Image
 
-SRC = '/Users/eferri/Code/bloom/assets/map-brooklyn.jpg'
-# geo bounds of the full stitched sheet
-W_, E_ = -74.00390625, -73.828125
-N_, S_ = 40.847060356071225, 40.613952441166596
+SRC = '/Users/eferri/Code/bloom/assets/map-nyc.jpg'
+# geo bounds of the full stitched sheet, straight from bake_map.py
+W_, E_ = -74.0478515625, -73.828125
+N_, S_ = 40.780541431860314, 40.613952441166596
 
-CENTRE = (40.7005, -73.9280)     # middle of the pin cluster
-OUT_CSS = (576, 928)             # CSS px; image is 2x this for retina
-SCALE = 2
+# what we keep. South of the screenshot's edge by ~1.3km so Crown Heights,
+# the tightest of the six, still clears a 2-mile circle.
+WEST, EAST = -74.030, -73.830
+SOUTH, NORTH = 40.628, 40.775
+
+# 14.45 metres per CSS pixel, matching the old sheet — the feed map's panning
+# and its pin scatter are both tuned to that, and this keeps them untouched.
+M_PER_CSS_PX = 14.45
+DPR = 1.5                        # what the old image shipped at
 
 
 def merc(lat):
@@ -22,35 +34,43 @@ def unmerc(m):
 
 
 img = Image.open(SRC)
-W, H = img.size                                   # 2048 x 3584
+W, H = img.size
 
-fx = (CENTRE[1] - W_) / (E_ - W_)
 yN, yS = merc(N_), merc(S_)
-fy = (yN - merc(CENTRE[0])) / (yN - yS)
+fx = lambda lng: (lng - W_) / (E_ - W_)
+fy = lambda lat: (merc(N_) - merc(lat)) / (yN - yS)
 
-ow, oh = OUT_CSS[0] * SCALE, OUT_CSS[1] * SCALE
-left = round(fx * W - ow / 2)
-top = round(fy * H - oh / 2)
-left = max(0, min(left, W - ow))                  # clamp inside the sheet
-top = max(0, min(top, H - oh))
+left, right = round(fx(WEST) * W), round(fx(EAST) * W)
+top, bottom = round(fy(NORTH) * H), round(fy(SOUTH) * H)
+assert 0 <= left < right <= W and 0 <= top < bottom <= H, 'crop falls outside the stitch'
+crop = img.crop((left, top, right, bottom))
 
-crop = img.crop((left, top, left + ow, top + oh))
+# geo bounds of the crop as actually cut, not as asked for — rounding to whole
+# pixels moves the edges slightly, and the app projects against these numbers
+west = W_ + (left / W) * (E_ - W_)
+east = W_ + (right / W) * (E_ - W_)
+north = unmerc(yN - (top / H) * (yN - yS))
+south = unmerc(yN - (bottom / H) * (yN - yS))
 
+lat_mid = (north + south) / 2
+km_w = (east - west) * 111320 * math.cos(math.radians(lat_mid))
+css_w = round(km_w / M_PER_CSS_PX)
+css_h = round(css_w * crop.size[1] / crop.size[0])
+crop = crop.resize((round(css_w * DPR), round(css_h * DPR)), Image.LANCZOS)
+
+# Stored grayscale: the CSS reskin opens with grayscale(1), so every byte of
+# chroma here is discarded at render time. Saves little on these tiles — they're
+# already near-achromatic — but it's free and it can't change what's drawn.
 buf = io.BytesIO()
-crop.save(buf, 'JPEG', quality=78, optimize=True, progressive=False)
+crop.convert('L').save(buf, 'JPEG', quality=62, optimize=True, progressive=False)
 data = buf.getvalue()
 
-# geo bounds of the crop
-west = W_ + (left / W) * (E_ - W_)
-east = W_ + ((left + ow) / W) * (E_ - W_)
-north = unmerc(yN - (top / H) * (yN - yS))
-south = unmerc(yN - ((top + oh) / H) * (yN - yS))
-
 uri = 'data:image/jpeg;base64,' + base64.b64encode(data).decode()
-open('/private/tmp/claude-501/-Users-eferri-Code-bloom/6ac95b60-1ef7-42c9-b284-30f920228e21/scratchpad/map.datauri', 'w').write(uri)
+open('/Users/eferri/Code/bloom/assets/map.datauri', 'w').write(uri)
 
 print(json.dumps({
     'jpegBytes': len(data), 'dataUriBytes': len(uri),
-    'px': crop.size, 'cssPx': OUT_CSS,
+    'px': crop.size, 'cssPx': [css_w, css_h],
     'west': west, 'east': east, 'north': north, 'south': south,
+    'mPerCssPx': round(km_w / css_w, 2),
 }, indent=1))

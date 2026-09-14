@@ -1,0 +1,5 @@
+# Basemap build intermediates. Both are regenerable — `tools/bake_map.py`
+# stitches the tiles, `tools/crop_map.py` crops and encodes them — and the
+# result that actually ships is inlined in index.html as a data URI. Keeping
+# 1.3MB of them in a repo whose point is one portable file isn't worth it.
+assets/
